@@ -8,6 +8,22 @@ class ChessRiskGraph(RiskGraph):
         super().__init__()  # RiskGraph
         self.board = chess.Board()
         self._nodes_indexes = None
+        self._nodes_positions = None
+
+    def load_pgn(self, pgn_game_file):
+        # https://theweekinchess.com/twic
+        self.pgn = open(pgn_game_file)
+        self._next_game()
+
+    def _next_game(self):
+        self.current_game = chess.pgn.read_game(self.pgn)
+        self.board = self.current_game.board()
+
+    def analyze_game(self, pgn_game_file):
+        self.load_pgn(pgn_game_file)
+        for move in self.current_game.mainline_moves():
+            self.board.push(move)
+            self.analyze_risk()
 
     def analyze_risk(self):
         self.clear_graphs()
@@ -15,6 +31,7 @@ class ChessRiskGraph(RiskGraph):
         decorated_pieces = self._get_decorated_board_pieces()
         self.support_graph.add_nodes_from(decorated_pieces)
         self.threat_graph.add_nodes_from(decorated_pieces)
+        self.graph.add_nodes_from(decorated_pieces)
         self.analyze_first_order_risk()
         return
 
@@ -54,14 +71,14 @@ class ChessRiskGraph(RiskGraph):
             'index': square_index,
             'square': square,
             'piece': str(piece),
-            'color': str(piece.color),
+            'color': piece.color,
             'type': str(piece.piece_type),
             'group': 'w' if piece.color else 'b',
         }
         return piece_name, piece_data
 
     def analyze_first_order_risk(self):
-        self._nodes_indexes = nx.get_node_attributes(self.support_graph, 'index')
+        self._nodes_indexes = nx.get_node_attributes(self.graph, 'index')
         # go over chess pieces:
         for decorated_piece in self._decorated_board_piece_generator():
             self._pawn(decorated_piece)
@@ -72,11 +89,7 @@ class ChessRiskGraph(RiskGraph):
             self._queen(decorated_piece)
 
     def _rook(self, decorated_piece):
-        node_data = decorated_piece[1]
-        square_index = node_data['index']
-        piece = self.board.piece_at(square_index)
-
-        if str(piece).lower() != 'r':
+        if str(decorated_piece[1]['piece']).lower() != 'r':
             return
 
         kernels = [
@@ -88,30 +101,25 @@ class ChessRiskGraph(RiskGraph):
         self._scan_rolling(decorated_piece, kernels)
 
     def _bishop(self, decorated_piece):
-        node_data = decorated_piece[1]
-        square_index = node_data['index']
-        piece = self.board.piece_at(square_index)
-        if str(piece).lower() != 'b':
+        if str(decorated_piece[1]['piece']).lower() != 'b':
             return
         kernels = [
             (1, 1),
+            (1, -1),
             (-1, 1),
             (-1, -1),
-            (1, -1)
         ]
         self._scan_rolling(decorated_piece, kernels)
 
     def _queen(self, decorated_piece):
-        node_data = decorated_piece[1]
-        square_index = node_data['index']
-        piece = self.board.piece_at(square_index)
+        if str(decorated_piece[1]['piece']).lower() != 'q':
+            return
+
         kernels = [
             (1, 1), (0, 1), (-1, 1),
             (-1, 0), (1, 0),
             (-1, -1), (0, -1), (1, -1)
         ]
-        if str(piece).lower() != 'q':
-            return
         self._scan_rolling(decorated_piece, kernels)
 
     def _scan_rolling(self, decorated_piece, kernels):
@@ -133,16 +141,16 @@ class ChessRiskGraph(RiskGraph):
                     if not other_decorated_piece:
                         square_delta = tuple(sum(x) for x in zip(square_delta, kernel))
                         continue
+                    if other_decorated_piece[1]['piece'].lower() == 'k':
+                        if other_decorated_piece[1]['color'] == decorated_piece[1]['color']:
+                            break
                     self._link_pieces(decorated_piece, other_decorated_piece)
                     break
                 except ValueError:
                     break
 
     def _king(self, decorated_piece):
-        node_data = decorated_piece[1]
-        square_index = node_data['index']
-        piece = self.board.piece_at(square_index)
-        if str(piece).lower() != 'k':
+        if str(decorated_piece[1]['piece']).lower() != 'k':
             return
 
         square_deltas = [
@@ -153,10 +161,7 @@ class ChessRiskGraph(RiskGraph):
         self._scan_deltas(decorated_piece, square_deltas)
 
     def _knight(self, decorated_piece):
-        node_data = decorated_piece[1]
-        square_index = node_data['index']
-        piece = self.board.piece_at(square_index)
-        if str(piece).lower() != 'n':
+        if str(decorated_piece[1]['piece']).lower() != 'n':
             return
         square_deltas = [
             (2, 1), (1, 2),
@@ -167,12 +172,9 @@ class ChessRiskGraph(RiskGraph):
         self._scan_deltas(decorated_piece, square_deltas)
 
     def _pawn(self, decorated_piece):
-        node_data = decorated_piece[1]
-        square_index = node_data['index']
-        piece = self.board.piece_at(square_index)
-        if str(piece).lower() != 'p':
+        if str(decorated_piece[1]['piece']).lower() != 'p':
             return
-        sign = +1 if piece.color is True else -1
+        sign = 1 if decorated_piece[1]['color'] is True else -1
         square_deltas = [
             (sign, 1),
             (sign, -1)
@@ -190,6 +192,10 @@ class ChessRiskGraph(RiskGraph):
             try:
                 other_square_index = self._row_col_to_square_index(other_square_row, other_square_col)
                 other_decorated_piece = self._get_decorated_piece_at_square(other_square_index)
+                if not other_decorated_piece:
+                    continue
+                if other_decorated_piece[1]['piece'].lower() == 'k':
+                    continue
                 self._link_pieces(decorated_piece, other_decorated_piece)
             except ValueError:
                 pass
@@ -203,9 +209,11 @@ class ChessRiskGraph(RiskGraph):
 
         if other_decorated_piece[1]['color'] == decorated_piece[1]['color']:
             self.support_graph.add_edge(node, other_node)
+            self.graph.add_edge(node, other_node)
         else:
             # add_threat_edge()
             self.threat_graph.add_edge(node, other_node)
+            self.graph.add_edge(node, other_node)
 
     def _get_node_at_square(self, square):
         # square to node
@@ -216,6 +224,19 @@ class ChessRiskGraph(RiskGraph):
         piece = self.board.piece_at(other_square_index)
         return piece
 
+    def _chess_layout(self):
+        pass
+        # place nodes at their corresponding rank (x) and file (y) positions.
+        square_size = 10
+        offset = square_size*8/2
+        # go over the nodes and check the square and set the pos based on the square
+        self.positions = dict()
+        for node in self._nodes_indexes:
+            index = self._nodes_indexes[node]
+            x = index%8
+            y = int(index/8)
+            self.positions[node] = [x, y]
+        return self.positions
 
 def main():
     # ChessRiskGraph

@@ -7,16 +7,18 @@ class RiskGraph:
     def __init__(self):
         self.support_graph = nx.MultiDiGraph()
         self.threat_graph = nx.MultiDiGraph()
+        self.graph = nx.MultiDiGraph()
         self.positions = None
 
     def clear_graphs(self):
         self.support_graph.clear()
         self.threat_graph.clear()
+        self.graph.clear()
         self.positions = None
 
     def get_positions(self):
         if not self.positions:
-            self.positions = nx.random_layout(self.support_graph)
+            self.positions = nx.random_layout(self.graph)
         return self.positions
 
     def _draw_graph(self, graph):
@@ -55,3 +57,6 @@ class RiskGraph:
 
     def draw_threat_graph(self):
         self._draw_graph(self.threat_graph)
+
+    def draw_graph(self):
+        self._draw_graph(self.graph)
