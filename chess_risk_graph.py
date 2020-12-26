@@ -9,31 +9,59 @@ class ChessRiskGraph(RiskGraph):
         self.board = chess.Board()
         self._nodes_indexes = None
         self._nodes_positions = None
+        self._pgn = None
+        self._current_game = None
+        self._current_move_index = 1
+        self._global_first_order_risk = {
+            'w': [],
+            'b': [],
+        }
 
     def load_pgn(self, pgn_game_file):
         # https://theweekinchess.com/twic
-        self.pgn = open(pgn_game_file)
+        self._pgn = open(pgn_game_file)
         self._next_game()
 
     def _next_game(self):
-        self.current_game = chess.pgn.read_game(self.pgn)
-        self.board = self.current_game.board()
+        self._current_game = chess.pgn.read_game(self._pgn)
+        self.board = self._current_game.board()
 
     def analyze_game(self, pgn_game_file):
         self.load_pgn(pgn_game_file)
-        for move in self.current_game.mainline_moves():
+        self._current_move_index = 1
+        self._global_first_order_risk = {
+            'w': [],
+            'b': [],
+        }
+        for move in self._current_game.mainline_moves():
             self.board.push(move)
             self.analyze_risk()
+            self.quantify_risk()
+            self._current_move_index += 1
+            break
 
     def analyze_risk(self):
-        self.clear_graphs()
-        # Go over the chess board and add nodes for pieces
-        decorated_pieces = self._get_decorated_board_pieces()
-        self.support_graph.add_nodes_from(decorated_pieces)
-        self.threat_graph.add_nodes_from(decorated_pieces)
-        self.graph.add_nodes_from(decorated_pieces)
         self.analyze_first_order_risk()
         return
+
+    def quantify_risk(self):
+        # calculate threat in_degree for each node
+        self._threat_in_degrees = self.threat_graph.in_degree()
+        # calculate support in_degree for each node
+        self._support_in_degrees = self.support_graph.in_degree()
+        self._first_order_risk = dict()
+
+        for node in self.graph.nodes:
+            self._first_order_risk[node] = self._threat_in_degrees[node] - self._support_in_degrees[node]
+
+        self._global_first_order_risk['w'].append(
+            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is True])
+        )
+        self._global_first_order_risk['b'].append(
+            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is False])
+        )
+        # print(self._global_first_order_risk['w'][self._current_move_index-1],
+        #       self._global_first_order_risk['b'][self._current_move_index-1])
 
     def _get_decorated_board_pieces(self):
         return [piece for piece in self._decorated_board_piece_generator()]
@@ -78,6 +106,13 @@ class ChessRiskGraph(RiskGraph):
         return piece_name, piece_data
 
     def analyze_first_order_risk(self):
+        self.clear_graphs()
+        # go over the chess board and add nodes for pieces
+        decorated_pieces = self._get_decorated_board_pieces()
+        self.support_graph.add_nodes_from(decorated_pieces)
+        self.threat_graph.add_nodes_from(decorated_pieces)
+        self.graph.add_nodes_from(decorated_pieces)
+        #
         self._nodes_indexes = nx.get_node_attributes(self.graph, 'index')
         # go over chess pieces:
         for decorated_piece in self._decorated_board_piece_generator():
@@ -195,7 +230,8 @@ class ChessRiskGraph(RiskGraph):
                 if not other_decorated_piece:
                     continue
                 if other_decorated_piece[1]['piece'].lower() == 'k':
-                    continue
+                    if other_decorated_piece[1]['color'] == decorated_piece[1]['color']:
+                        continue
                 self._link_pieces(decorated_piece, other_decorated_piece)
             except ValueError:
                 pass
@@ -227,16 +263,15 @@ class ChessRiskGraph(RiskGraph):
     def _chess_layout(self):
         pass
         # place nodes at their corresponding rank (x) and file (y) positions.
-        square_size = 10
-        offset = square_size*8/2
         # go over the nodes and check the square and set the pos based on the square
         self.positions = dict()
         for node in self._nodes_indexes:
             index = self._nodes_indexes[node]
-            x = index%8
+            x = index % 8
             y = int(index/8)
             self.positions[node] = [x, y]
         return self.positions
+
 
 def main():
     # ChessRiskGraph

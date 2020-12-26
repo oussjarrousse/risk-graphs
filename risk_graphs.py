@@ -9,6 +9,9 @@ class RiskGraph:
         self.threat_graph = nx.MultiDiGraph()
         self.graph = nx.MultiDiGraph()
         self.positions = None
+        self._threat_in_degrees = None
+        self._support_in_degrees = None
+        self._first_order_risk = None
 
     def clear_graphs(self):
         self.support_graph.clear()
