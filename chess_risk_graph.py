@@ -16,6 +16,14 @@ class ChessRiskGraph(RiskGraph):
             'w': [],
             'b': [],
         }
+        self._kaufmann_middlegame_weights = {
+            '1':  1,    # Pawn
+            '2':  3.5,  # Bishop
+            '3':  3.5,  # kNight
+            '4':  5.25, # Rook
+            '5':  10,   # Queen
+            '6':  15    # King ; added to the kaufmann_middlegame_weights because it has a significant meaning here
+        }
 
     def load_pgn(self, pgn_game_file):
         # https://theweekinchess.com/twic
@@ -51,14 +59,23 @@ class ChessRiskGraph(RiskGraph):
         self._support_in_degrees = self.support_graph.in_degree()
         self._first_order_risk = dict()
 
+        # threat; piece: Support    => Risk
+        # ?;  p; none       => Risk = pawn * weight_of_pawn
+        # ?;  p; ?          => Risk = pawn * weight_of_pawn - weigt_of_threat
+        #
         for node in self.graph.nodes:
-            self._first_order_risk[node] = self._threat_in_degrees[node] - self._support_in_degrees[node]
+            #for u, v in self.threat_graph.in_edges(node):
+            self._first_order_risk[node] = (
+                    self._threat_in_degrees[node] * self.graph.nodes[node]['value']
+                    - self._threat_in_degrees[node]
+            )
+            self._first_order_risk[node] = self._first_order_risk[node]
 
         self._global_first_order_risk['w'].append(
-            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is True])
+            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is True]) + 19
         )
         self._global_first_order_risk['b'].append(
-            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is False])
+            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is False]) + 19
         )
         # print(self._global_first_order_risk['w'][self._current_move_index-1],
         #       self._global_first_order_risk['b'][self._current_move_index-1])
@@ -102,6 +119,7 @@ class ChessRiskGraph(RiskGraph):
             'color': piece.color,
             'type': str(piece.piece_type),
             'group': 'w' if piece.color else 'b',
+            'value': self._kaufmann_middlegame_weights[str(piece.piece_type)]
         }
         return piece_name, piece_data
 
@@ -261,7 +279,6 @@ class ChessRiskGraph(RiskGraph):
         return piece
 
     def _chess_layout(self):
-        pass
         # place nodes at their corresponding rank (x) and file (y) positions.
         # go over the nodes and check the square and set the pos based on the square
         self.positions = dict()
