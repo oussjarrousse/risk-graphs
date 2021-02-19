@@ -2,7 +2,6 @@ import chess
 import networkx as nx
 from risk_graphs import RiskGraph
 
-
 class ChessRiskGraph(RiskGraph):
     def __init__(self):
         super().__init__()  # RiskGraph
@@ -46,36 +45,56 @@ class ChessRiskGraph(RiskGraph):
             self.analyze_risk()
             self.quantify_risk()
             self._current_move_index += 1
-            break
+        x = np.arange(len(crg._global_first_order_risk['b']))
+        plt.plot(x, crg._global_first_order_risk['w'], '-', color='gray')
+        plt.plot(x, crg._global_first_order_risk['b'], '-', color='black')
+        deltas = [crg._global_first_order_risk['b'][index]-crg._global_first_order_risk['w'][index] for index in x]
+        plt.plot(x, deltas, '-', color='red')
+        plt.title("{}(w) {} {}(b), {}".format(
+            game.headers['White'],
+            game.headers['Result'],
+            game.headers['Black'],
+            game.headers['Date']))
 
     def analyze_risk(self):
         self.analyze_first_order_risk()
+        #self.analyze_second_order_risk()
         return
 
     def quantify_risk(self):
         # calculate threat in_degree for each node
-        self._threat_in_degrees = self.threat_graph.in_degree()
+        #self._threat_in_degrees = self.threat_graph.in_degree()
         # calculate support in_degree for each node
-        self._support_in_degrees = self.support_graph.in_degree()
-        self._first_order_risk = dict()
-
-        # threat; piece: Support    => Risk
-        # ?;  p; none       => Risk = pawn * weight_of_pawn
-        # ?;  p; ?          => Risk = pawn * weight_of_pawn - weigt_of_threat
+        #self._support_in_degrees = self.support_graph.in_degree()
         #
+        turn = self.board.turn # chess.WHITE = True, chess.BLACK = False
+        #
+        self._first_order_risk = dict()
         for node in self.graph.nodes:
-            #for u, v in self.threat_graph.in_edges(node):
-            self._first_order_risk[node] = (
-                    self._threat_in_degrees[node] * self.graph.nodes[node]['value']
-                    - self._threat_in_degrees[node]
-            )
-            self._first_order_risk[node] = self._first_order_risk[node]
+            self._first_order_risk[node] = 0
+            threat_nodes = list(self.threat_graph.predecessors(node))
+            n = len(threat_nodes)
+            if n <= 0:
+                continue
+            supporting_nodes = list(self.support_graph.predecessors(node))
+            m = len(supporting_nodes)
+            l1 = min(len(threat_nodes) - 1, len(supporting_nodes))
+            color = self.graph.nodes[node]['color']
+            r = self.graph.nodes[node]['value']
+            #print('r={}'.format(r))
+            #print(sorted([crg.graph.nodes[node]['value'] for node in list(supporting_nodes)]))
+            r += sum(sorted([self.graph.nodes[node]['value'] for node in list(supporting_nodes)])[:l1])
+            #print('r={}'.format(r))
+            # print(sorted([crg.graph.nodes[node]['value'] for node in list(threat_nodes)]))
+            r -= sum(sorted([self.graph.nodes[node]['value'] for node in list(threat_nodes)])[:len(supporting_nodes)])
+            #print('r={}'.format(r))
+            self._first_order_risk[node] = r
 
         self._global_first_order_risk['w'].append(
-            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is True]) + 19
+            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is True])
         )
         self._global_first_order_risk['b'].append(
-            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is False]) + 19
+            sum([self._first_order_risk[node] for node in self.graph.nodes if self.graph.nodes[node]['color'] is False])
         )
         # print(self._global_first_order_risk['w'][self._current_move_index-1],
         #       self._global_first_order_risk['b'][self._current_move_index-1])
@@ -101,6 +120,9 @@ class ChessRiskGraph(RiskGraph):
                     continue
                 yield self._get_decorated_piece_at_square(square_index)
 
+    def _piece_value(self, piece_type):
+        return self._kaufmann_middlegame_weights[str(piece_type)]
+
     def _get_decorated_piece_at_square(self, square_index):
         # square_index = row * 8 + col
         square = chess.SQUARES[square_index]
@@ -116,12 +138,16 @@ class ChessRiskGraph(RiskGraph):
             'index': square_index,
             'square': square,
             'piece': str(piece),
+            'label': piece_name,
             'color': piece.color,
             'type': str(piece.piece_type),
             'group': 'w' if piece.color else 'b',
-            'value': self._kaufmann_middlegame_weights[str(piece.piece_type)]
+            'value': self._piece_value(piece.piece_type)
         }
         return piece_name, piece_data
+
+    def analyze_second_order_risk(self):
+        pass
 
     def analyze_first_order_risk(self):
         self.clear_graphs()
@@ -260,7 +286,6 @@ class ChessRiskGraph(RiskGraph):
             return
         node = self._get_node_at_square(decorated_piece[1]['square'])
         other_node = self._get_node_at_square(other_decorated_piece[1]['square'])
-
         if other_decorated_piece[1]['color'] == decorated_piece[1]['color']:
             self.support_graph.add_edge(node, other_node)
             self.graph.add_edge(node, other_node)

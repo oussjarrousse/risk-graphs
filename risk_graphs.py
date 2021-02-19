@@ -19,8 +19,39 @@ class RiskGraph:
         self.graph.clear()
         self.positions = None
 
+    def add_node(self, node_name, node_data):
+        self.graph.add_node(node_name, **node_data)
+        self.support_graph.add_node(node_name, **node_data)
+        self.threat_graph.add_node(node_name, **node_data)
+
+    def remove_support(self,supporting, supported):
+        self.graph.remove_edge(supporting, supported)
+        self.support_graph.remove_edge(supporting, supported)
+
+    def add_support(self, supporting, supported, weight):
+        self.graph.add_edge(supporting, supported, weight=weight)
+        self.support_graph.add_edge(supporting, supported, weight=weight)
+
+    def remove_threat(self,threatening, threatened):
+        self.graph.remove_edge(threatening, threatened)
+        self.threat_graph.remove_edge(threatening, threatened)
+
+    def add_threat(self, threatening, threatened, weight):
+        self.graph.add_edge(threatening, threatened, weight=weight)
+        self.threat_graph.add_edge(threatening, threatened, weight=weight)
+
+    def remove_node(self, node):
+        self.graph.remove_node(node)
+        self.support_graph.remove_node(node)
+        self.threat_graph.remove_node(node)
+
+    def analyze_risk(self):
+        raise NotImplemented
+
     def get_positions(self):
         if not self.positions:
+            self.positions = nx.random_layout(self.graph)
+        if len(self.positions)<len(self.graph.nodes):
             self.positions = nx.random_layout(self.graph)
         return self.positions
 
@@ -45,8 +76,7 @@ class RiskGraph:
                                )
         nx.draw_networkx_labels(graph,
                                 pos=pos,
-                                labels={n: l for n, l in zip(list(graph.nodes()),
-                                                             list(graph.nodes()))},
+                                labels= nx.get_node_attributes(graph, 'label'),
                                 font_color='green',
                                 font_size='10',
                                 font_weight='bold'
